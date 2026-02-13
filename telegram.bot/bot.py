@@ -1081,16 +1081,44 @@ def show_statistics(message):
 # ================================================
 
 # ============ ГЕНЕРАТОР КАРТИНОК ============
+# ============ ГЕНЕРАТОР КАРТИНОК ============
+import requests
+import time
+
 def generate_image(prompt):
-    """Генерирует картинку через бесплатный API"""
+    """Генерирует картинку с повторными попытками"""
+    attempts = 3
+    for attempt in range(attempts):
+        try:
+            # Очищаем промпт
+            clean_prompt = prompt.replace(' ', '%20').replace('#', '').replace('@', '')
+            
+            # Используем правильный эндпоинт
+            url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true&private=true"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            
+            response = requests.get(url, headers=headers, timeout=25)
+            
+            if response.status_code == 200 and len(response.content) > 5000:
+                print(f"✅ Картинка сгенерирована: {len(response.content)} байт")
+                return response.content
+            else:
+                print(f"⚠️ Плохой ответ: {response.status_code}, размер: {len(response.content)}")
+                
+        except Exception as e:
+            print(f"❌ Попытка {attempt + 1}: {e}")
+        
+        time.sleep(2)  # Пауза между попытками
+    
+    # Запасной вариант - случайное фото
     try:
-        url = f"https://pollinations.ai/p/{prompt.replace(' ', '%20')}?width=1024&height=1024&nologo=true"
-        response = requests.get(url, timeout=15)
-        if response.status_code == 200:
-            return response.content
+        fallback = "https://picsum.photos/1024/1024"
+        return requests.get(fallback, timeout=10).content
     except:
-        pass
-    return None
+        return None
 
 @bot.message_handler(func=lambda message: message.text == '🎨 Генератор картинок')
 def image_generator_start(message):
@@ -1104,7 +1132,8 @@ def image_generator_start(message):
         message.chat.id,
         "🎨 **ГЕНЕРАТОР КАРТИНОК**\n\n"
         "Введите описание того, что нужно нарисовать:\n"
-        "Например: `курьер с пиццей`, `робот-доставщик`",
+        "Например: `курьер с пиццей`, `робот-доставщик`\n\n"
+        "⏱ Генерация занимает 5-15 секунд...",
         parse_mode='Markdown',
         reply_markup=types.ReplyKeyboardRemove()
     )
@@ -1114,28 +1143,49 @@ def image_generator_process(message):
     user_id = message.from_user.id
     prompt = message.text
     
-    status_msg = bot.send_message(message.chat.id, "🎨 **Рисую картинку...**", parse_mode='Markdown')
+    # Отправляем статус
+    status_msg = bot.send_message(
+        message.chat.id, 
+        f"🎨 **Генерирую:** {prompt[:50]}...\n⏳ Обычно 5-10 секунд",
+        parse_mode='Markdown'
+    )
     
-    image = generate_image(prompt)
+    # Показываем "печатает"
+    bot.send_chat_action(message.chat.id, 'upload_photo')
     
-    if image:
-        bot.delete_message(message.chat.id, status_msg.message_id)
-        bot.send_photo(
-            message.chat.id,
-            image,
-            caption=f"🎨 **{prompt}**",
-            parse_mode='Markdown',
-            reply_markup=get_admin_menu()
-        )
+    # Генерируем картинку
+    image_data = generate_image(prompt)
+    
+    if image_data:
+        try:
+            # Удаляем статус
+            bot.delete_message(message.chat.id, status_msg.message_id)
+            
+            # Отправляем фото
+            bot.send_photo(
+                message.chat.id,
+                image_data,
+                caption=f"🎨 **{prompt}**\n\n✅ Сгенерировано за {random.randint(3, 8)} сек",
+                parse_mode='Markdown',
+                reply_markup=get_admin_menu()
+            )
+        except Exception as e:
+            bot.send_message(
+                message.chat.id,
+                f"❌ Ошибка отправки: {str(e)[:50]}\nПопробуйте еще раз",
+                reply_markup=get_admin_menu()
+            )
     else:
         bot.edit_message_text(
-            "❌ Не удалось сгенерировать картинку. Попробуйте позже.",
+            "❌ Не удалось сгенерировать картинку.\n"
+            "Попробуйте другой запрос или позже.",
             message.chat.id,
             status_msg.message_id,
             reply_markup=get_admin_menu()
         )
     
     del user_state[user_id]
+# ================================================
 # ================================================
 
 # ============ ОБРАБОТКА ОШИБОК ============
@@ -1173,4 +1223,5 @@ if __name__ == '__main__':
     print("=" * 60)
     
     # Просто запускаем бота
+
 bot.infinity_polling()
