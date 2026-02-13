@@ -299,16 +299,69 @@ def register_customer(message):
 # ======================================================================
 # ВЫХОД ИЗ СИСТЕМЫ
 # ======================================================================
+# ======================================================================
+# ВЫХОД ИЗ СИСТЕМЫ (ТОЛЬКО ОЧИСТКА ПАМЯТИ, ДАННЫЕ СОХРАНЯЮТСЯ)
+# ======================================================================
 @bot.message_handler(func=lambda message: message.text == '🚪 Выйти')
 def logout(message):
     user_id = message.from_user.id
-
+    
+    # Запоминаем роль перед удалением (для сообщения)
+    old_role = user_role.get(user_id, 'пользователь')
+    role_name = get_role_name(old_role)
+    
+    # ✅ 1. НЕ УДАЛЯЕМ ИЗ ФАЙЛА! Только убираем привязку user_id
+    users = load_users()
+    user_found = False
+    for code, user in users.items():
+        if user.get('user_id') == user_id:
+            user['user_id'] = None  # Отвязываем Telegram ID, но данные сохраняются
+            user_found = True
+            print(f"🔓 Пользователь {code} ({user['name']}) вышел, Telegram ID {user_id} отвязан")
+            break
+    if user_found:
+        save_users(users)  # Сохраняем изменения (user_id = null)
+    
+    # ✅ 2. УДАЛЯЕМ ТОЛЬКО ИЗ ПАМЯТИ (RAM), НЕ ИЗ ФАЙЛА
     if user_id in user_role:
         del user_role[user_id]
     if user_id in user_data:
         del user_data[user_id]
     if user_id in user_state:
         del user_state[user_id]
+    
+    # ✅ 3. ОТПРАВЛЯЕМ СООБЩЕНИЕ
+    bot.send_message(
+        message.chat.id,
+        f"🔓 **ВЫ УСПЕШНО ВЫШЛИ ИЗ СИСТЕМЫ**\n\n"
+        f"👤 Роль: {role_name}\n"
+        f"✅ Данные сохранены\n"
+        f"📌 Для повторного входа используйте тот же код и пароль\n\n"
+        f"➡️ Нажмите /start чтобы войти снова",
+        parse_mode='Markdown',
+        reply_markup=get_auth_menu()
+    )
+    
+    print(f"✅ Пользователь {user_id} вышел. Данные сохранены, можно зайти заново")
+
+@bot.message_handler(func=lambda message: message.text == '🔙 Назад')
+def back_button(message):
+    user_id = message.from_user.id
+    
+    if is_authorized(user_id):
+        role = user_role.get(user_id)
+        bot.send_message(
+            message.chat.id,
+            "🔙 Возврат в меню",
+            reply_markup=get_role_menu(role)
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "🏠 Главное меню",
+            reply_markup=get_auth_menu()
+        )
+# ======================================================================
 
     bot.send_message(
         message.chat.id,
@@ -1209,4 +1262,5 @@ if __name__ == '__main__':
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
 # ======================================================================
+
 
