@@ -14,7 +14,7 @@ import uuid
 from datetime import datetime
 
 # ============ НАСТРОЙКИ БОТА ============
-TOKEN = '8239960839:AAGuh7sVWi4Z1cvYXGs9gDFcl7L2wNAqvwg'  # ⚠️ ВСТАВЬ СВОЙ ТОКЕН!
+TOKEN = '8239960839:AAEvNh2tUp9uOLrYYVYOgAZVRS0YRsLDH00'  # ⚠️ ВСТАВЬ СВОЙ ТОКЕН!
 bot = telebot.TeleBot(TOKEN)
 
 # Файлы для хранения данных
@@ -1485,5 +1485,6 @@ if __name__ == '__main__':
     # Просто запускаем бота
 
 bot.infinity_polling()
+
 
 
