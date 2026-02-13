@@ -975,6 +975,51 @@ def default_handler(message):
             reply_markup=get_auth_menu()
         )
 # ================================================
+# ============ ВЕБ-ЗАГЛУШКА ДЛЯ RENDER ============
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+import socket
+import os
+
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        self.wfile.write(b'''
+        <html>
+            <head><title>Telegram Bot</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1 style="color: #4CAF50;">✅ БОТ РАБОТАЕТ!</h1>
+                <p>Telegram bot @bottoarmwhloe_bot is running 24/7 on Render</p>
+                <p>⚡ Статус: активен</p>
+                <p>📅 Время: ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S').encode() + b'''</p>
+            </body>
+        </html>
+        ''')
+    
+    def log_message(self, format, *args):
+        pass  # Отключаем логи
+
+def find_free_port():
+    """Находит свободный порт"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+
+def run_webserver():
+    try:
+        # Render ожидает порт 10000
+        port = 10000
+        server = HTTPServer(('0.0.0.0', port), PingHandler)
+        print(f"✅ Веб-сервер запущен на порту {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"⚠️ Ошибка веб-сервера: {e}")
+
+# Запускаем веб-сервер в фоне
+threading.Thread(target=run_webserver, daemon=True).start()
+# ================================================
 
 # ============ ЗАПУСК ============
 if __name__ == '__main__':
@@ -987,12 +1032,14 @@ if __name__ == '__main__':
     print("=" * 60)
     print("👑 Админ: код 1, пароль admin123")
     print("=" * 60)
+
     
     try:
         bot.infinity_polling(skip_pending=True)
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
+
 
 
 
