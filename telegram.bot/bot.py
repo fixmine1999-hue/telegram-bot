@@ -10,7 +10,7 @@ from telebot import types
 from datetime import datetime
 
 # ============ НАСТРОЙКИ ============
-TOKEN = '8239960839:AAEvNh2tUp9uOLrYYVYOgAZVRS0YRsLDH00'  # ⚠️ ВСТАВЬ СВОЙ ТОКЕН!
+TOKEN = '8239960839:AAEvNh2tUp9uOLrYYVYOgAZVRS0YRsLDH00'
 bot = telebot.TeleBot(TOKEN)
 
 USERS_FILE = 'users.json'
@@ -26,7 +26,6 @@ user_state = {}
 
 # ============ ИНИЦИАЛИЗАЦИЯ ФАЙЛОВ ============
 def init_files():
-    # Создаем админа
     if not os.path.exists(USERS_FILE):
         users = {
             "1": {
@@ -41,8 +40,7 @@ def init_files():
         with open(USERS_FILE, 'w', encoding='utf-8') as f:
             json.dump(users, f, indent=2, ensure_ascii=False)
         print("✅ Админ создан: код 1, пароль admin123")
-    
-    # Создаем пустые файлы
+
     for file in [ORDERS_FILE, RECIPIENTS_FILE]:
         if not os.path.exists(file):
             with open(file, 'w', encoding='utf-8') as f:
@@ -154,7 +152,6 @@ def get_role_menu(role):
 @bot.message_handler(commands=['start'])
 def start_command(message):
     user_id = message.from_user.id
-    
     if is_authorized(user_id):
         role = user_role.get(user_id)
         name = user_data[user_id].get('name', 'Пользователь')
@@ -175,13 +172,12 @@ def start_command(message):
             parse_mode='Markdown',
             reply_markup=get_auth_menu()
         )
+# ================================================
 
-# ============ АВТОРИЗАЦИЯ ============
 # ============ АВТОРИЗАЦИЯ ============
 @bot.message_handler(func=lambda message: message.text in ['👑 Админ', '📋 Менеджер', '🚚 Курьер', '🛒 Покупатель'])
 def auth_select(message):
     user_id = message.from_user.id
-    
     if message.text == '🛒 Покупатель':
         user_state[user_id] = {'action': 'register_customer'}
         bot.send_message(
@@ -192,12 +188,93 @@ def auth_select(message):
             parse_mode='Markdown',
             reply_markup=types.ReplyKeyboardRemove()
         )
-        # ============ ВЫХОД ИЗ СИСТЕМЫ ============
+    else:
+        role_map = {'👑 Админ': 'admin', '📋 Менеджер': 'manager', '🚚 Курьер': 'courier'}
+        user_state[user_id] = {'action': 'auth_login', 'role': role_map[message.text]}
+        bot.send_message(
+            message.chat.id,
+            "🔑 Введите код и пароль через пробел:",
+            reply_markup=types.ReplyKeyboardRemove()
+        )
+
+@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'auth_login')
+def auth_login(message):
+    user_id = message.from_user.id
+    role = user_state[user_id].get('role')
+    try:
+        code, password = message.text.split(' ', 1)
+        users = load_users()
+        if code in users and users[code].get('role') == role:
+            if users[code].get('password') == password:
+                users[code]['user_id'] = user_id
+                save_users(users)
+                user_role[user_id] = role
+                user_data[user_id] = users[code]
+                bot.send_message(
+                    message.chat.id,
+                    f"✅ **АВТОРИЗАЦИЯ УСПЕШНА!**\n\nДобро пожаловать, {users[code]['name']}!",
+                    parse_mode='Markdown',
+                    reply_markup=get_role_menu(role)
+                )
+                del user_state[user_id]
+            else:
+                bot.send_message(message.chat.id, "❌ Неверный пароль", reply_markup=get_auth_menu())
+        else:
+            bot.send_message(message.chat.id, "❌ Неверный код или роль", reply_markup=get_auth_menu())
+    except:
+        bot.send_message(message.chat.id, "❌ Неверный формат! Используйте: код пароль", reply_markup=get_auth_menu())
+
+@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'register_customer')
+def register_customer(message):
+    user_id = message.from_user.id
+    try:
+        parts = message.text.split(' ', 1)
+        if len(parts) < 2:
+            bot.send_message(
+                message.chat.id,
+                "❌ Введите имя И телефон через пробел!\nПример: `Иван Петров +79991234567`",
+                parse_mode='Markdown'
+            )
+            return
+        name = parts[0]
+        phone = parts[1]
+        customer_code = f"cust_{uuid.uuid4().hex[:6]}"
+        users = load_users()
+        users[customer_code] = {
+            'role': 'customer',
+            'name': name,
+            'phone': phone,
+            'password': '',
+            'user_id': user_id,
+            'registered': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        save_users(users)
+        user_role[user_id] = 'customer'
+        user_data[user_id] = users[customer_code]
+        print(f"✅ ПОКУПАТЕЛЬ ЗАРЕГИСТРИРОВАН: {user_id} -> {customer_code}")
+        bot.send_message(
+            message.chat.id,
+            f"✅ **РЕГИСТРАЦИЯ УСПЕШНА!**\n\n"
+            f"👤 Имя: {name}\n"
+            f"📞 Телефон: {phone}\n"
+            f"🔑 Ваш код: `{customer_code}`\n\n"
+            f"🛒 Теперь вы можете делать заказы!",
+            parse_mode='Markdown',
+            reply_markup=get_customer_menu()
+        )
+        del user_state[user_id]
+    except Exception as e:
+        bot.send_message(
+            message.chat.id,
+            f"❌ Ошибка: {str(e)[:100]}\nПопробуйте еще раз:",
+            reply_markup=get_auth_menu()
+        )
+# ================================================
+
+# ============ ВЫХОД ИЗ СИСТЕМЫ ============
 @bot.message_handler(func=lambda message: message.text == '🚪 Выйти')
 def logout(message):
     user_id = message.from_user.id
-
-    # Очищаем данные пользователя
     if user_id in user_role:
         print(f"👤 Выход: удалена роль {user_role[user_id]} для {user_id}")
         del user_role[user_id]
@@ -205,12 +282,9 @@ def logout(message):
         del user_data[user_id]
     if user_id in user_state:
         del user_state[user_id]
-
-    # Отправляем сообщение и показываем меню авторизации
     bot.send_message(
         message.chat.id,
-        "🔓 **Вы успешно вышли из системы**\n\n"
-        "Для повторного входа выберите роль:",
+        "🔓 **Вы успешно вышли из системы**\n\nДля повторного входа выберите роль:",
         parse_mode='Markdown',
         reply_markup=get_auth_menu()
     )
@@ -218,7 +292,6 @@ def logout(message):
 @bot.message_handler(func=lambda message: message.text == '🔙 Назад')
 def back_button(message):
     user_id = message.from_user.id
-
     if is_authorized(user_id):
         role = user_role.get(user_id)
         bot.send_message(
@@ -233,99 +306,17 @@ def back_button(message):
             reply_markup=get_auth_menu()
         )
 # ============================================
-    else:
-        role_map = {'👑 Админ': 'admin', '📋 Менеджер': 'manager', '🚚 Курьер': 'courier'}
-        user_state[user_id] = {'action': 'auth_login', 'role': role_map[message.text]}
-        bot.send_message(
-            message.chat.id,
-            "🔑 Введите код и пароль через пробел:",
-            reply_markup=types.ReplyKeyboardRemove()
-        )
-
-@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'register_customer')
-def register_customer(message):
-    user_id = message.from_user.id
-    
-    try:
-        # Разделяем имя и телефон
-        parts = message.text.split(' ', 1)
-        if len(parts) < 2:
-            bot.send_message(
-                message.chat.id,
-                "❌ Введите имя И телефон через пробел!\nПример: `Иван Петров +79991234567`",
-                parse_mode='Markdown'
-            )
-            return
-            
-        name = parts[0]
-        phone = parts[1]
-        
-        # Генерируем уникальный код
-        customer_code = f"cust_{uuid.uuid4().hex[:6]}"
-        
-        # Загружаем пользователей
-        users = load_users()
-        
-        # Создаем покупателя
-        users[customer_code] = {
-            'role': 'customer',
-            'name': name,
-            'phone': phone,
-            'password': '',
-            'user_id': user_id,
-            'registered': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        }
-        
-        # СОХРАНЯЕМ В ФАЙЛ!
-        save_users(users)
-        
-        # СОХРАНЯЕМ В ПАМЯТЬ!
-        user_role[user_id] = 'customer'
-        user_data[user_id] = users[customer_code]
-        
-        # ОТЛАДКА
-        print(f"✅ ПОКУПАТЕЛЬ ЗАРЕГИСТРИРОВАН: {user_id} -> {customer_code}")
-        print(f"   Роль в памяти: {user_role.get(user_id)}")
-        
-        # Проверяем, что сохранилось
-        check_users = load_users()
-        if customer_code in check_users:
-            print(f"✅ Покупатель сохранен в файл!")
-        
-        bot.send_message(
-            message.chat.id,
-            f"✅ **РЕГИСТРАЦИЯ УСПЕШНА!**\n\n"
-            f"👤 Имя: {name}\n"
-            f"📞 Телефон: {phone}\n"
-            f"🔑 Ваш код: `{customer_code}`\n\n"
-            f"🛒 Теперь вы можете делать заказы!",
-            parse_mode='Markdown',
-            reply_markup=get_customer_menu()
-        )
-        
-        del user_state[user_id]
-        
-    except Exception as e:
-        bot.send_message(
-            message.chat.id,
-            f"❌ Ошибка: {str(e)[:100]}\nПопробуйте еще раз:",
-            reply_markup=get_auth_menu()
-        )
-# ================================================
 
 # ============ ПАНЕЛЬ АДМИНА ============
 @bot.message_handler(func=lambda message: message.text == '👑 Панель админа')
 def admin_panel(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id):
         bot.send_message(message.chat.id, "❌ Сначала авторизуйтесь!")
         return
-    
     if user_role.get(user_id) != 'admin':
         bot.send_message(message.chat.id, "⛔ Только для администратора!")
         return
-    
     text = """
 👑 **ПАНЕЛЬ АДМИНИСТРАТОРА**
 
@@ -347,25 +338,20 @@ def admin_panel(message):
 @bot.message_handler(commands=['add_manager', 'add_courier'])
 def add_employee(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         bot.send_message(message.chat.id, "⛔ Нет прав!")
         return
-    
     try:
         parts = message.text.split()
         if len(parts) != 5:
             bot.send_message(message.chat.id, "❌ Формат: /add_manager код имя телефон пароль")
             return
-        
         role = 'manager' if message.text.startswith('/add_manager') else 'courier'
         code, name, phone, password = parts[1], parts[2], parts[3], parts[4]
-        
         users = load_users()
         if code in users:
             bot.send_message(message.chat.id, "❌ Код уже существует!")
             return
-        
         users[code] = {
             'role': role,
             'name': name,
@@ -375,7 +361,6 @@ def add_employee(message):
             'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         save_users(users)
-        
         bot.send_message(
             message.chat.id,
             f"✅ {role.upper()} ДОБАВЛЕН!\nКод: `{code}`\nИмя: {name}\nПароль: `{password}`",
@@ -389,11 +374,9 @@ def delete_user(message):
     user_id = message.from_user.id
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         return
-    
     try:
         code = message.text.split()[1]
         users = load_users()
-        
         if code in users and users[code]['role'] != 'admin':
             if users[code].get('user_id'):
                 uid = users[code]['user_id']
@@ -401,7 +384,6 @@ def delete_user(message):
                     del user_role[uid]
                 if uid in user_data:
                     del user_data[uid]
-            
             del users[code]
             save_users(users)
             bot.send_message(message.chat.id, f"✅ Пользователь {code} удален")
@@ -415,17 +397,14 @@ def list_users(message):
     user_id = message.from_user.id
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         return
-    
     users = load_users()
     text = "📋 **СПИСОК СОТРУДНИКОВ:**\n\n"
-    
     for code, user in users.items():
         if user['role'] in ['admin', 'manager', 'courier']:
             status = "🟢 ONLINE" if user.get('user_id') else "🔴 OFFLINE"
             text += f"`{code}` | {status}\n"
             text += f"   👤 {user['role']}: {user['name']}\n"
             text += f"   📞 {user['phone']}\n\n"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['orders'])
@@ -433,12 +412,10 @@ def admin_orders(message):
     user_id = message.from_user.id
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         return
-    
     orders = load_orders()
     if not orders:
         bot.send_message(message.chat.id, "📭 Заказов пока нет")
         return
-    
     text = "📦 **ВСЕ ЗАКАЗЫ:**\n\n"
     for order_id, order in list(orders.items())[-10:]:
         text += f"🔖 `{order_id}`\n"
@@ -446,7 +423,6 @@ def admin_orders(message):
         text += f"📍 {order.get('address', 'Нет')[:30]}\n"
         text += f"📊 {order.get('status_text', '⏳')}\n"
         text += f"➖➖➖➖➖➖➖\n\n"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(commands=['stats'])
@@ -454,16 +430,13 @@ def admin_stats(message):
     user_id = message.from_user.id
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         return
-    
     users = load_users()
     orders = load_orders()
-    
     managers = sum(1 for u in users.values() if u['role'] == 'manager')
     couriers = sum(1 for u in users.values() if u['role'] == 'courier')
     customers = sum(1 for u in users.values() if u['role'] == 'customer')
     total_orders = len(orders)
     delivered = sum(1 for o in orders.values() if o.get('status') == 'delivered')
-    
     text = f"""
 📊 **СТАТИСТИКА СИСТЕМЫ**
 
@@ -477,7 +450,6 @@ def admin_stats(message):
 • Всего: {total_orders}
 • ✅ Доставлено: {delivered}
     """
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == '📦 Все заказы')
@@ -491,21 +463,17 @@ def managers_list(message):
     user_id = message.from_user.id
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         return
-    
     users = load_users()
     text = "📋 **СПИСОК МЕНЕДЖЕРОВ:**\n\n"
     count = 0
-    
     for code, user in users.items():
         if user['role'] == 'manager':
             status = "🟢" if user.get('user_id') else "🔴"
             text += f"{status} `{code}` - {user['name']}\n"
             text += f"   📞 {user['phone']}\n\n"
             count += 1
-    
     if count == 0:
         text = "📋 Менеджеров пока нет"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == '🚚 Курьеры')
@@ -513,21 +481,17 @@ def couriers_list(message):
     user_id = message.from_user.id
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         return
-    
     users = load_users()
     text = "🚚 **СПИСОК КУРЬЕРОВ:**\n\n"
     count = 0
-    
     for code, user in users.items():
         if user['role'] == 'courier':
             status = "🟢" if user.get('user_id') else "🔴"
             text += f"{status} `{code}` - {user['name']}\n"
             text += f"   📞 {user['phone']}\n\n"
             count += 1
-    
     if count == 0:
         text = "🚚 Курьеров пока нет"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 # ================================================
 
@@ -535,31 +499,16 @@ def couriers_list(message):
 @bot.message_handler(func=lambda message: message.text == '🛒 Сделать заказ')
 def create_order_start(message):
     user_id = message.from_user.id
-    
-    # ПРОВЕРКА АВТОРИЗАЦИИ
     if not is_authorized(user_id):
         bot.send_message(message.chat.id, "❌ Сначала авторизуйтесь!")
         return
-    
-    # ПРОВЕРКА РОЛИ С ДИАГНОСТИКОЙ
     role = user_role.get(user_id)
-    print(f"DEBUG: user_id={user_id}, role={role}")
-    
     if role != 'customer':
         bot.send_message(
-            message.chat.id, 
+            message.chat.id,
             f"⛔ Эта функция только для покупателей!\nВаша роль: {get_role_name(role)}"
         )
         return
-    
-    user_state[user_id] = {'action': 'create_order', 'step': 'address'}
-    bot.send_message(
-        message.chat.id,
-        "📝 **ОФОРМЛЕНИЕ ЗАКАЗА**\n\nВведите адрес доставки:",
-        parse_mode='Markdown',
-        reply_markup=types.ReplyKeyboardRemove()
-    )
-    
     user_state[user_id] = {'action': 'create_order', 'step': 'address'}
     bot.send_message(
         message.chat.id,
@@ -573,15 +522,12 @@ def create_order_process(message):
     user_id = message.from_user.id
     state = user_state[user_id]
     step = state.get('step')
-    
     if step == 'address':
         state['address'] = message.text
         state['step'] = 'details'
         bot.send_message(message.chat.id, "📦 Введите, что нужно доставить:")
-    
     elif step == 'details':
         order_id = f"ORD{int(time.time())}{random.randint(100, 999)}"
-        
         orders = load_orders()
         orders[order_id] = {
             'order_id': order_id,
@@ -597,7 +543,6 @@ def create_order_process(message):
             'created_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
         save_orders(orders)
-        
         bot.send_message(
             message.chat.id,
             f"✅ **ЗАКАЗ ОФОРМЛЕН!**\n\nНомер заказа: `{order_id}`\nСтатус: ⏳ Ожидает обработки",
@@ -609,15 +554,12 @@ def create_order_process(message):
 @bot.message_handler(func=lambda message: message.text == '📋 Новые заказы')
 def manager_new_orders(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
         bot.send_message(message.chat.id, "⛔ Только для менеджеров!")
         return
-    
     orders = load_orders()
     text = "📋 **НОВЫЕ ЗАКАЗЫ:**\n\n"
     count = 0
-    
     for order_id, order in orders.items():
         if order.get('status') == 'pending':
             text += f"🔖 `{order_id}`\n"
@@ -627,23 +569,18 @@ def manager_new_orders(message):
             text += f"📦 {order.get('details', '')}\n"
             text += f"➖➖➖➖➖➖➖➖➖\n\n"
             count += 1
-    
     if count == 0:
         text = "✅ Новых заказов нет"
-    
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
     keyboard.add('✅ Взять заказ', '🔄 Обновить')
     keyboard.add('🚪 Назад')
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown', reply_markup=keyboard)
 
 @bot.message_handler(func=lambda message: message.text == '✅ Взять заказ')
 def take_order_start(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
         return
-    
     user_state[user_id] = {'action': 'take_order'}
     bot.send_message(
         message.chat.id,
@@ -655,14 +592,12 @@ def take_order_start(message):
 def take_order_process(message):
     user_id = message.from_user.id
     order_id = message.text.strip()
-    
     orders = load_orders()
     if order_id in orders and orders[order_id].get('status') == 'pending':
         orders[order_id]['status'] = 'processing'
         orders[order_id]['status_text'] = '⚙️ В обработке'
         orders[order_id]['manager_id'] = user_id
         save_orders(orders)
-        
         bot.send_message(
             message.chat.id,
             f"✅ Заказ {order_id} взят в работу!",
@@ -670,27 +605,22 @@ def take_order_process(message):
         )
     else:
         bot.send_message(message.chat.id, "❌ Заказ не найден или уже обрабатывается")
-    
     del user_state[user_id]
 
 @bot.message_handler(func=lambda message: message.text == '📦 Активные заказы')
 def manager_active_orders(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
         return
-    
     orders = load_orders()
     text = "📦 **АКТИВНЫЕ ЗАКАЗЫ:**\n\n"
     count = 0
-    
     for order_id, order in orders.items():
         if order.get('manager_id') == user_id and order['status'] in ['processing', 'accepted', 'ready']:
             text += f"🔖 `{order_id}`\n"
             text += f"👤 {order['customer_name']}\n"
             text += f"📍 {order['address']}\n"
             text += f"📊 {order['status_text']}\n"
-            
             if order.get('courier_id'):
                 users = load_users()
                 for code, user in users.items():
@@ -698,19 +628,15 @@ def manager_active_orders(message):
                         text += f"🚚 Курьер: {user['name']}\n"
             text += f"➖➖➖➖➖➖➖\n\n"
             count += 1
-    
     if count == 0:
         text = "📭 Активных заказов нет"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == '🚚 Назначить курьера')
 def assign_courier_start(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
         return
-    
     user_state[user_id] = {'action': 'assign_courier_start'}
     bot.send_message(
         message.chat.id,
@@ -722,27 +648,22 @@ def assign_courier_start(message):
 def assign_courier_order(message):
     user_id = message.from_user.id
     order_id = message.text.strip()
-    
     orders = load_orders()
     if order_id not in orders:
         bot.send_message(message.chat.id, "❌ Заказ не найден")
         del user_state[user_id]
         return
-    
     users = load_users()
     couriers = []
     courier_text = "🚚 **ДОСТУПНЫЕ КУРЬЕРЫ:**\n\n"
-    
     for code, user in users.items():
         if user['role'] == 'courier' and user.get('user_id'):
             couriers.append(code)
             courier_text += f"`{code}` - {user['name']} ({user['phone']})\n"
-    
     if not couriers:
         bot.send_message(message.chat.id, "❌ Нет доступных курьеров")
         del user_state[user_id]
         return
-    
     user_state[user_id] = {'action': 'assign_courier', 'order_id': order_id}
     bot.send_message(
         message.chat.id,
@@ -755,21 +676,17 @@ def assign_courier_execute(message):
     user_id = message.from_user.id
     courier_code = message.text.strip()
     order_id = user_state[user_id]['order_id']
-    
     users = load_users()
     if courier_code not in users or users[courier_code]['role'] != 'courier':
         bot.send_message(message.chat.id, "❌ Неверный код курьера")
         return
-    
     orders = load_orders()
     courier_id = users[courier_code]['user_id']
-    
     if courier_id:
         orders[order_id]['courier_id'] = courier_id
         orders[order_id]['status'] = 'ready'
         orders[order_id]['status_text'] = '🚚 Передан курьеру'
         save_orders(orders)
-        
         try:
             bot.send_message(
                 courier_id,
@@ -784,7 +701,6 @@ def assign_courier_execute(message):
             )
         except:
             pass
-        
         bot.send_message(
             message.chat.id,
             f"✅ Курьер назначен на заказ {order_id}",
@@ -792,21 +708,17 @@ def assign_courier_execute(message):
         )
     else:
         bot.send_message(message.chat.id, "❌ Курьер не авторизован в боте")
-    
     del user_state[user_id]
 
 @bot.message_handler(func=lambda message: message.text == '🚚 Мои заказы')
 def courier_orders(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'courier':
         bot.send_message(message.chat.id, "⛔ Только для курьеров!")
         return
-    
     orders = load_orders()
     text = "🚚 **МОИ ЗАКАЗЫ:**\n\n"
     count = 0
-    
     for order_id, order in orders.items():
         if order.get('courier_id') == user_id and order['status'] in ['ready', 'accepted']:
             text += f"🔖 `{order_id}`\n"
@@ -816,19 +728,15 @@ def courier_orders(message):
             text += f"📦 {order['details']}\n"
             text += f"➖➖➖➖➖➖➖\n\n"
             count += 1
-    
     if count == 0:
         text = "📭 У вас нет активных заказов"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == '✅ Доставлено')
 def deliver_order_start(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'courier':
         return
-    
     user_state[user_id] = {'action': 'deliver_order'}
     bot.send_message(
         message.chat.id,
@@ -840,14 +748,12 @@ def deliver_order_start(message):
 def deliver_order_process(message):
     user_id = message.from_user.id
     order_id = message.text.strip()
-    
     orders = load_orders()
     if order_id in orders and orders[order_id].get('courier_id') == user_id:
         orders[order_id]['status'] = 'delivered'
         orders[order_id]['status_text'] = '✅ Доставлен'
         orders[order_id]['delivered_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         save_orders(orders)
-        
         if orders[order_id].get('manager_id'):
             try:
                 bot.send_message(
@@ -856,7 +762,6 @@ def deliver_order_process(message):
                 )
             except:
                 pass
-        
         if orders[order_id].get('customer_id'):
             try:
                 bot.send_message(
@@ -865,7 +770,6 @@ def deliver_order_process(message):
                 )
             except:
                 pass
-        
         bot.send_message(
             message.chat.id,
             f"✅ Заказ {order_id} отмечен как доставленный!",
@@ -873,20 +777,16 @@ def deliver_order_process(message):
         )
     else:
         bot.send_message(message.chat.id, "❌ Заказ не найден")
-    
     del user_state[user_id]
 
 @bot.message_handler(func=lambda message: message.text == '📋 Мои заказы')
 def customer_orders(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'customer':
         return
-    
     orders = load_orders()
     text = "📋 **ВАШИ ЗАКАЗЫ:**\n\n"
     count = 0
-    
     for order_id, order in orders.items():
         if order.get('customer_id') == user_id:
             text += f"🔖 `{order_id}`\n"
@@ -895,10 +795,8 @@ def customer_orders(message):
             text += f"📊 {order['status_text']}\n"
             text += f"➖➖➖➖➖➖➖\n\n"
             count += 1
-    
     if count == 0:
         text = "📭 У вас еще нет заказов"
-    
     bot.send_message(message.chat.id, text, parse_mode='Markdown')
 
 @bot.message_handler(func=lambda message: message.text == '🔄 Обновить')
@@ -918,7 +816,7 @@ def back_to_menu(message):
     if is_authorized(user_id):
         bot.send_message(
             message.chat.id,
-            f"🔙 Возврат в меню",
+            "🔙 Возврат в меню",
             reply_markup=get_role_menu(user_role[user_id])
         )
 # ================================================
@@ -930,12 +828,10 @@ def generate_image(prompt):
         url = f"https://image.pollinations.ai/prompt/{clean_prompt}?width=1024&height=1024&nologo=true"
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
         response = requests.get(url, headers=headers, timeout=30)
-        
         if response.status_code == 200 and len(response.content) > 5000:
             return response.content
     except Exception as e:
         print(f"Ошибка генерации: {e}")
-    
     try:
         fallback = "https://picsum.photos/1024/1024"
         return requests.get(fallback, timeout=10).content
@@ -945,11 +841,9 @@ def generate_image(prompt):
 @bot.message_handler(func=lambda message: message.text == '🎨 Генератор картинок')
 def image_generator_start(message):
     user_id = message.from_user.id
-    
     if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
         bot.send_message(message.chat.id, "⛔ Только для администратора!")
         return
-    
     user_state[user_id] = {'action': 'generate_image'}
     bot.send_message(
         message.chat.id,
@@ -962,16 +856,13 @@ def image_generator_start(message):
 def image_generator_process(message):
     user_id = message.from_user.id
     prompt = message.text
-    
     status = bot.send_message(
-        message.chat.id, 
+        message.chat.id,
         f"🎨 Рисую: {prompt[:50]}...\n⏳ Подождите...",
         parse_mode='Markdown'
     )
-    
     bot.send_chat_action(message.chat.id, 'upload_photo')
     image = generate_image(prompt)
-    
     if image:
         try:
             bot.delete_message(message.chat.id, status.message_id)
@@ -995,8 +886,44 @@ def image_generator_process(message):
             status.message_id,
             reply_markup=get_admin_menu()
         )
-    
     del user_state[user_id]
+# ================================================
+
+# ============ ВЕБ-ЗАГЛУШКА ДЛЯ RENDER ============
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
+
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html; charset=utf-8')
+        self.end_headers()
+        html = f'''
+        <html>
+            <head><title>Telegram Bot</title></head>
+            <body style="font-family: Arial; text-align: center; padding: 50px;">
+                <h1 style="color: #4CAF50;">✅ БОТ РАБОТАЕТ!</h1>
+                <p>🤖 @bottoarmwhloe_bot</p>
+                <p>⚡ Статус: активен 24/7 на Render</p>
+                <p>📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            </body>
+        </html>
+        '''
+        self.wfile.write(html.encode('utf-8'))
+
+    def log_message(self, format, *args):
+        pass
+
+def run_webserver():
+    try:
+        port = 10000
+        server = HTTPServer(('0.0.0.0', port), PingHandler)
+        print(f"✅ Веб-сервер запущен на порту {port}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"⚠️ Ошибка веб-сервера: {e}")
+
+threading.Thread(target=run_webserver, daemon=True).start()
 # ================================================
 
 # ============ ОБРАБОТКА ОШИБОК ============
@@ -1016,57 +943,6 @@ def default_handler(message):
             reply_markup=get_auth_menu()
         )
 # ================================================
-# ============ ВЕБ-ЗАГЛУШКА ДЛЯ RENDER ============
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import socket
-import os
-
-class PingHandler(BaseHTTPRequestHandler):
-   def do_GET(self):
-    self.send_response(200)
-    self.send_header('Content-type', 'text/html; charset=utf-8')
-    self.end_headers()
-    
-    html = f'''
-    <html>
-        <head><title>Telegram Bot</title></head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1 style="color: #4CAF50;">✅ БОТ РАБОТАЕТ!</h1>
-            <p>🤖 @bottoarmwhloe_bot</p>
-            <p>⚡ Статус: активен 24/7 на Render</p>
-            <p>📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        </body>
-    </html>
-    '''
-    
-    self.wfile.write(html.encode('utf-8'))
-
-def log_message(self, format, *args):
-    pass
-    
-    def log_message(self, format, *args):
-        pass  # Отключаем логи
-
-def find_free_port():
-    """Находит свободный порт"""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('', 0))
-        return s.getsockname()[1]
-
-def run_webserver():
-    try:
-        # Render ожидает порт 10000
-        port = 10000
-        server = HTTPServer(('0.0.0.0', port), PingHandler)
-        print(f"✅ Веб-сервер запущен на порту {port}")
-        server.serve_forever()
-    except Exception as e:
-        print(f"⚠️ Ошибка веб-сервера: {e}")
-
-# Запускаем веб-сервер в фоне
-threading.Thread(target=run_webserver, daemon=True).start()
-# ================================================
 
 # ============ ЗАПУСК ============
 if __name__ == '__main__':
@@ -1080,16 +956,9 @@ if __name__ == '__main__':
     print("👑 Админ: код 1, пароль admin123")
     print("=" * 60)
 
-    
     try:
         bot.infinity_polling(skip_pending=True)
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
-
-
-
-
-
-
-
+# ================================================
