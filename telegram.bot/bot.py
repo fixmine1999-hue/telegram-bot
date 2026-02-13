@@ -177,6 +177,7 @@ def start_command(message):
         )
 
 # ============ АВТОРИЗАЦИЯ ============
+# ============ АВТОРИЗАЦИЯ ============
 @bot.message_handler(func=lambda message: message.text in ['👑 Админ', '📋 Менеджер', '🚚 Курьер', '🛒 Покупатель'])
 def auth_select(message):
     user_id = message.from_user.id
@@ -185,7 +186,9 @@ def auth_select(message):
         user_state[user_id] = {'action': 'register_customer'}
         bot.send_message(
             message.chat.id,
-            "📝 **РЕГИСТРАЦИЯ ПОКУПАТЕЛЯ**\n\nВведите ваше имя и телефон через пробел:\nПример: `Иван Петров +79991234567`",
+            "📝 **РЕГИСТРАЦИЯ ПОКУПАТЕЛЯ**\n\n"
+            "Введите ваше имя и телефон через пробел:\n"
+            "Пример: `Иван Петров +79991234567`",
             parse_mode='Markdown',
             reply_markup=types.ReplyKeyboardRemove()
         )
@@ -198,49 +201,31 @@ def auth_select(message):
             reply_markup=types.ReplyKeyboardRemove()
         )
 
-@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'auth_login')
-def auth_login(message):
-    user_id = message.from_user.id
-    role = user_state[user_id].get('role')
-    
-    try:
-        code, password = message.text.split(' ', 1)
-        users = load_users()
-        
-        if code in users and users[code].get('role') == role:
-            if users[code].get('password') == password:
-                users[code]['user_id'] = user_id
-                save_users(users)
-                
-                user_role[user_id] = role
-                user_data[user_id] = users[code]
-                
-                bot.send_message(
-                    message.chat.id,
-                    f"✅ **АВТОРИЗАЦИЯ УСПЕШНА!**\n\nДобро пожаловать, {users[code]['name']}!",
-                    parse_mode='Markdown',
-                    reply_markup=get_role_menu(role)
-                )
-                del user_state[user_id]
-            else:
-                bot.send_message(message.chat.id, "❌ Неверный пароль", reply_markup=get_auth_menu())
-        else:
-            bot.send_message(message.chat.id, "❌ Неверный код или роль", reply_markup=get_auth_menu())
-    except:
-        bot.send_message(message.chat.id, "❌ Неверный формат! Используйте: код пароль", reply_markup=get_auth_menu())
-
 @bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'register_customer')
 def register_customer(message):
     user_id = message.from_user.id
     
     try:
+        # Разделяем имя и телефон
         parts = message.text.split(' ', 1)
+        if len(parts) < 2:
+            bot.send_message(
+                message.chat.id,
+                "❌ Введите имя И телефон через пробел!\nПример: `Иван Петров +79991234567`",
+                parse_mode='Markdown'
+            )
+            return
+            
         name = parts[0]
-        phone = parts[1] if len(parts) > 1 else ""
+        phone = parts[1]
         
+        # Генерируем уникальный код
         customer_code = f"cust_{uuid.uuid4().hex[:6]}"
         
+        # Загружаем пользователей
         users = load_users()
+        
+        # Создаем покупателя
         users[customer_code] = {
             'role': 'customer',
             'name': name,
@@ -249,33 +234,42 @@ def register_customer(message):
             'user_id': user_id,
             'registered': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
+        
+        # СОХРАНЯЕМ В ФАЙЛ!
         save_users(users)
         
+        # СОХРАНЯЕМ В ПАМЯТЬ!
         user_role[user_id] = 'customer'
         user_data[user_id] = users[customer_code]
         
+        # ОТЛАДКА
+        print(f"✅ ПОКУПАТЕЛЬ ЗАРЕГИСТРИРОВАН: {user_id} -> {customer_code}")
+        print(f"   Роль в памяти: {user_role.get(user_id)}")
+        
+        # Проверяем, что сохранилось
+        check_users = load_users()
+        if customer_code in check_users:
+            print(f"✅ Покупатель сохранен в файл!")
+        
         bot.send_message(
             message.chat.id,
-            f"✅ **РЕГИСТРАЦИЯ УСПЕШНА!**\n\nВаш код: `{customer_code}`\nСохраните его для отслеживания заказов!",
+            f"✅ **РЕГИСТРАЦИЯ УСПЕШНА!**\n\n"
+            f"👤 Имя: {name}\n"
+            f"📞 Телефон: {phone}\n"
+            f"🔑 Ваш код: `{customer_code}`\n\n"
+            f"🛒 Теперь вы можете делать заказы!",
             parse_mode='Markdown',
             reply_markup=get_customer_menu()
         )
+        
         del user_state[user_id]
+        
     except Exception as e:
-        bot.send_message(message.chat.id, f"❌ Ошибка: {str(e)[:50]}", reply_markup=get_auth_menu())
-
-@bot.message_handler(func=lambda message: message.text == '🚪 Выйти')
-def logout(message):
-    user_id = message.from_user.id
-    if user_id in user_role:
-        del user_role[user_id]
-    if user_id in user_data:
-        del user_data[user_id]
-    bot.send_message(
-        message.chat.id,
-        "🔓 Вы вышли из системы",
-        reply_markup=get_auth_menu()
-    )
+        bot.send_message(
+            message.chat.id,
+            f"❌ Ошибка: {str(e)[:100]}\nПопробуйте еще раз:",
+            reply_markup=get_auth_menu()
+        )
 # ================================================
 
 # ============ ПАНЕЛЬ АДМИНА ============
@@ -999,5 +993,6 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
+
 
 
