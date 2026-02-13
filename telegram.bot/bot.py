@@ -192,6 +192,47 @@ def auth_select(message):
             parse_mode='Markdown',
             reply_markup=types.ReplyKeyboardRemove()
         )
+        # ============ ВЫХОД ИЗ СИСТЕМЫ ============
+@bot.message_handler(func=lambda message: message.text == '🚪 Выйти')
+def logout(message):
+    user_id = message.from_user.id
+
+    # Очищаем данные пользователя
+    if user_id in user_role:
+        print(f"👤 Выход: удалена роль {user_role[user_id]} для {user_id}")
+        del user_role[user_id]
+    if user_id in user_data:
+        del user_data[user_id]
+    if user_id in user_state:
+        del user_state[user_id]
+
+    # Отправляем сообщение и показываем меню авторизации
+    bot.send_message(
+        message.chat.id,
+        "🔓 **Вы успешно вышли из системы**\n\n"
+        "Для повторного входа выберите роль:",
+        parse_mode='Markdown',
+        reply_markup=get_auth_menu()
+    )
+
+@bot.message_handler(func=lambda message: message.text == '🔙 Назад')
+def back_button(message):
+    user_id = message.from_user.id
+
+    if is_authorized(user_id):
+        role = user_role.get(user_id)
+        bot.send_message(
+            message.chat.id,
+            "🔙 Возврат в меню",
+            reply_markup=get_role_menu(role)
+        )
+    else:
+        bot.send_message(
+            message.chat.id,
+            "🏠 Главное меню",
+            reply_markup=get_auth_menu()
+        )
+# ============================================
     else:
         role_map = {'👑 Админ': 'admin', '📋 Менеджер': 'manager', '🚚 Курьер': 'courier'}
         user_state[user_id] = {'action': 'auth_login', 'role': role_map[message.text]}
@@ -1045,6 +1086,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
+
 
 
 
