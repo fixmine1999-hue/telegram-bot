@@ -982,21 +982,27 @@ import socket
 import os
 
 class PingHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b'''
-        <html>
-            <head><title>Telegram Bot</title></head>
-            <body style="font-family: Arial; text-align: center; padding: 50px;">
-                <h1 style="color: #4CAF50;">✅ БОТ РАБОТАЕТ!</h1>
-                <p>Telegram bot @bottoarmwhloe_bot is running 24/7 on Render</p>
-                <p>⚡ Статус: активен</p>
-                <p>📅 Время: ''' + datetime.now().strftime('%Y-%m-%d %H:%M:%S').encode() + b'''</p>
-            </body>
-        </html>
-        ''')
+   def do_GET(self):
+    self.send_response(200)
+    self.send_header('Content-type', 'text/html; charset=utf-8')
+    self.end_headers()
+    
+    html = f'''
+    <html>
+        <head><title>Telegram Bot</title></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h1 style="color: #4CAF50;">✅ БОТ РАБОТАЕТ!</h1>
+            <p>🤖 @bottoarmwhloe_bot</p>
+            <p>⚡ Статус: активен 24/7 на Render</p>
+            <p>📅 Время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </body>
+    </html>
+    '''
+    
+    self.wfile.write(html.encode('utf-8'))
+
+def log_message(self, format, *args):
+    pass
     
     def log_message(self, format, *args):
         pass  # Отключаем логи
@@ -1039,6 +1045,7 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
+
 
 
 
