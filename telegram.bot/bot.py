@@ -10,7 +10,7 @@ from telebot import types
 from datetime import datetime
 
 # ============ НАСТРОЙКИ ============
-TOKEN = '8239960839:AAEvCSo66B81xLPRqe1uBFqPfzLyakKFRq'  # ⚠️ ВСТАВЬ СВОЙ ТОКЕН!
+TOKEN = '8239960839:AAEvNh2tUp9uOLrYYVYOgAZVRS0YRsLDH00'  # ⚠️ ВСТАВЬ СВОЙ ТОКЕН!
 bot = telebot.TeleBot(TOKEN)
 
 USERS_FILE = 'users.json'
@@ -979,3 +979,4 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
+
