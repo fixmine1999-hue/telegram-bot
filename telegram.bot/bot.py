@@ -501,9 +501,29 @@ def couriers_list(message):
 def create_order_start(message):
     user_id = message.from_user.id
     
-    if not is_authorized(user_id) or user_role.get(user_id) != 'customer':
-        bot.send_message(message.chat.id, "⛔ Только для покупателей!")
+    # ПРОВЕРКА АВТОРИЗАЦИИ
+    if not is_authorized(user_id):
+        bot.send_message(message.chat.id, "❌ Сначала авторизуйтесь!")
         return
+    
+    # ПРОВЕРКА РОЛИ С ДИАГНОСТИКОЙ
+    role = user_role.get(user_id)
+    print(f"DEBUG: user_id={user_id}, role={role}")
+    
+    if role != 'customer':
+        bot.send_message(
+            message.chat.id, 
+            f"⛔ Эта функция только для покупателей!\nВаша роль: {get_role_name(role)}"
+        )
+        return
+    
+    user_state[user_id] = {'action': 'create_order', 'step': 'address'}
+    bot.send_message(
+        message.chat.id,
+        "📝 **ОФОРМЛЕНИЕ ЗАКАЗА**\n\nВведите адрес доставки:",
+        parse_mode='Markdown',
+        reply_markup=types.ReplyKeyboardRemove()
+    )
     
     user_state[user_id] = {'action': 'create_order', 'step': 'address'}
     bot.send_message(
@@ -979,4 +999,5 @@ if __name__ == '__main__':
     except Exception as e:
         print(f"❌ Ошибка: {e}")
         time.sleep(5)
+
 
