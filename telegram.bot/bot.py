@@ -318,6 +318,266 @@ def logout(message):
         reply_markup=get_auth_menu()
     )
 # ================================================
+# ============ УПРАВЛЕНИЕ ЗАКАЗАМИ ============
+@bot.message_handler(func=lambda message: message.text == '📦 Заказы')
+def admin_orders(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id) or user_role.get(user_id) != 'admin':
+        bot.send_message(message.chat.id, "⛔ Нет доступа!")
+        return
+    
+    orders = load_orders()
+    if not orders:
+        bot.send_message(message.chat.id, "📭 Заказов пока нет")
+        return
+    
+    text = "📦 **ВСЕ ЗАКАЗЫ:**\n\n"
+    for order_id, order in list(orders.items())[:10]:  # Последние 10 заказов
+        text += f"🔖 `{order_id}`\n"
+        text += f"👤 {order.get('customer_name', 'Неизвестно')}\n"
+        text += f"📍 {order.get('address', 'Нет адреса')}\n"
+        text += f"📊 {order.get('status_text', '⏳')}\n"
+        text += f"📅 {order.get('created_at', '')[:10]}\n"
+        text += f"➖➖➖➖➖➖➖➖➖\n\n"
+    
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+@bot.message_handler(func=lambda message: message.text == '📋 Новые заказы')
+def manager_new_orders(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
+        return
+    
+    orders = load_orders()
+    text = "📋 **НОВЫЕ ЗАКАЗЫ:**\n\n"
+    count = 0
+    
+    for order_id, order in orders.items():
+        if order.get('status') == 'pending':
+            text += f"🔖 `{order_id}`\n"
+            text += f"👤 {order.get('customer_name', '')}\n"
+            text += f"📞 {order.get('customer_phone', '')}\n"
+            text += f"📍 {order.get('address', '')}\n"
+            text += f"➖➖➖➖➖➖➖➖➖\n\n"
+            count += 1
+    
+    if count == 0:
+        text = "✅ Новых заказов нет"
+    
+    # Кнопка для взятия заказа
+    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    keyboard.add('✅ Взять заказ', '🔄 Обновить')
+    keyboard.add('🚪 Назад')
+    
+    bot.send_message(message.chat.id, text, parse_mode='Markdown', reply_markup=keyboard)
+
+@bot.message_handler(func=lambda message: message.text == '✅ Взять заказ')
+def take_order_start(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
+        return
+    
+    user_state[user_id] = {'action': 'take_order'}
+    bot.send_message(
+        message.chat.id,
+        "📝 Введите номер заказа:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+
+@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'take_order')
+def take_order_process(message):
+    user_id = message.from_user.id
+    order_id = message.text.strip()
+    
+    orders = load_orders()
+    if order_id in orders and orders[order_id].get('status') == 'pending':
+        orders[order_id]['status'] = 'processing'
+        orders[order_id]['status_text'] = '⚙️ В обработке'
+        orders[order_id]['manager_id'] = user_id
+        save_orders(orders)
+        
+        bot.send_message(
+            message.chat.id,
+            f"✅ Заказ {order_id} взят в работу!",
+            reply_markup=get_manager_menu()
+        )
+    else:
+        bot.send_message(message.chat.id, "❌ Заказ не найден или уже обрабатывается")
+    
+    del user_state[user_id]
+
+@bot.message_handler(func=lambda message: message.text == '🚚 Назначить курьера')
+def assign_courier_start(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id) or user_role.get(user_id) != 'manager':
+        return
+    
+    user_state[user_id] = {'action': 'assign_courier_start'}
+    bot.send_message(
+        message.chat.id,
+        "📦 Введите номер заказа:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+
+@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'assign_courier_start')
+def assign_courier_order(message):
+    user_id = message.from_user.id
+    order_id = message.text.strip()
+    
+    orders = load_orders()
+    if order_id not in orders:
+        bot.send_message(message.chat.id, "❌ Заказ не найден")
+        del user_state[user_id]
+        return
+    
+    # Получаем список курьеров
+    users = load_users()
+    couriers = []
+    for code, user in users.items():
+        if user['role'] == 'courier' and user.get('user_id'):
+            couriers.append(f"{code} - {user['name']}")
+    
+    if not couriers:
+        bot.send_message(message.chat.id, "❌ Нет доступных курьеров")
+        del user_state[user_id]
+        return
+    
+    user_state[user_id] = {'action': 'assign_courier', 'order_id': order_id}
+    bot.send_message(
+        message.chat.id,
+        "🚚 **Доступные курьеры:**\n" + "\n".join(couriers) + "\n\nВведите код курьера:",
+        parse_mode='Markdown'
+    )
+
+@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'assign_courier')
+def assign_courier_execute(message):
+    user_id = message.from_user.id
+    courier_code = message.text.strip()
+    order_id = user_state[user_id]['order_id']
+    
+    users = load_users()
+    if courier_code not in users or users[courier_code]['role'] != 'courier':
+        bot.send_message(message.chat.id, "❌ Неверный код курьера")
+        return
+    
+    orders = load_orders()
+    courier_id = users[courier_code]['user_id']
+    
+    if courier_id:
+        orders[order_id]['courier_id'] = courier_id
+        orders[order_id]['status'] = 'ready'
+        orders[order_id]['status_text'] = '🚚 Передан курьеру'
+        save_orders(orders)
+        
+        # Уведомляем курьера
+        try:
+            bot.send_message(
+                courier_id,
+                f"🚚 **Новый заказ!**\n\n"
+                f"Номер: `{order_id}`\n"
+                f"Адрес: {orders[order_id]['address']}\n"
+                f"Клиент: {orders[order_id]['customer_name']}",
+                parse_mode='Markdown',
+                reply_markup=get_courier_menu()
+            )
+        except:
+            pass
+        
+        bot.send_message(
+            message.chat.id,
+            f"✅ Курьер назначен на заказ {order_id}",
+            reply_markup=get_manager_menu()
+        )
+    else:
+        bot.send_message(message.chat.id, "❌ Курьер не авторизован")
+    
+    del user_state[user_id]
+
+@bot.message_handler(func=lambda message: message.text == '🚚 Мои заказы')
+def courier_orders(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id) or user_role.get(user_id) != 'courier':
+        return
+    
+    orders = load_orders()
+    text = "🚚 **МОИ ЗАКАЗЫ:**\n\n"
+    count = 0
+    
+    for order_id, order in orders.items():
+        if order.get('courier_id') == user_id and order['status'] in ['ready', 'accepted']:
+            text += f"🔖 `{order_id}`\n"
+            text += f"👤 {order['customer_name']}\n"
+            text += f"📍 {order['address']}\n"
+            text += f"📞 {order['customer_phone']}\n"
+            text += f"➖➖➖➖➖➖➖➖➖\n\n"
+            count += 1
+    
+    if count == 0:
+        text = "📭 У вас нет активных заказов"
+    
+    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+
+@bot.message_handler(func=lambda message: message.text == '✅ Доставлено')
+def deliver_order_start(message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id) or user_role.get(user_id) != 'courier':
+        return
+    
+    user_state[user_id] = {'action': 'deliver_order'}
+    bot.send_message(
+        message.chat.id,
+        "📦 Введите номер доставленного заказа:",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+
+@bot.message_handler(func=lambda message: user_state.get(message.from_user.id, {}).get('action') == 'deliver_order')
+def deliver_order_process(message):
+    user_id = message.from_user.id
+    order_id = message.text.strip()
+    
+    orders = load_orders()
+    if order_id in orders and orders[order_id].get('courier_id') == user_id:
+        orders[order_id]['status'] = 'delivered'
+        orders[order_id]['status_text'] = '✅ Доставлен'
+        orders[order_id]['delivered_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        save_orders(orders)
+        
+        # Уведомляем менеджера
+        if orders[order_id].get('manager_id'):
+            try:
+                bot.send_message(
+                    orders[order_id]['manager_id'],
+                    f"✅ Заказ {order_id} доставлен!"
+                )
+            except:
+                pass
+        
+        # Уведомляем покупателя
+        if orders[order_id].get('customer_id'):
+            try:
+                bot.send_message(
+                    orders[order_id]['customer_id'],
+                    f"✅ Ваш заказ {order_id} доставлен!\nСпасибо за покупку!"
+                )
+            except:
+                pass
+        
+        bot.send_message(
+            message.chat.id,
+            f"✅ Заказ {order_id} отмечен как доставленный!",
+            reply_markup=get_courier_menu()
+        )
+    else:
+        bot.send_message(message.chat.id, "❌ Заказ не найден")
+    
+    del user_state[user_id]
+
+@bot.message_handler(func=lambda message: message.text == '🔄 Обновить')
+def refresh_orders(message):
+    user_id = message.from_user.id
+    if is_authorized(user_id) and user_role.get(user_id) == 'manager':
+        manager_new_orders(message)
+# ================================================
 
 # ============ ПАНЕЛЬ АДМИНИСТРАТОРА ============
 @bot.message_handler(func=lambda message: message.text == '👑 Панель админа')
@@ -1225,3 +1485,4 @@ if __name__ == '__main__':
     # Просто запускаем бота
 
 bot.infinity_polling()
+
